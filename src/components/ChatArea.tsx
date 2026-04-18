@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { SendHorizontal, Phone, MoreVertical, Search, CheckCheck } from "lucide-react";
+import { SendHorizontal, MoreVertical, Search, CheckCheck } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 type WhatsAppMessage = {

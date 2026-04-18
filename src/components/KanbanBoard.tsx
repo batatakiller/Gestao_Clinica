@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MoveRight, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 
 type Consulta = {
   id: string;

@@ -32,7 +32,7 @@ export default function Dashboard() {
 
       let hojeCount = 0;
       let amanhaCount = 0;
-      let semanaCount = consultas.length; 
+      const semanaCount = consultas.length; 
 
       consultas.forEach((c) => {
         const cDate = new Date(c.data_hora);
