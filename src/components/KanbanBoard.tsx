@@ -1,25 +1,342 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Clock, Stethoscope, Shield, AlertTriangle, Sparkles } from "lucide-react";
+
+/* ───────── Types ───────── */
 
 type Consulta = {
   id: string;
   paciente_id: string;
+  medico_id: string;
   status: string;
   data_hora: string;
+  duracao_min: number;
   tipo: string;
-  motivo?: string; // Trazendo a nova coluna 'motivo' que acabou de ser criada no servidor
-  pacientes?: {
+  motivo: string | null;
+  observacoes: string | null;
+  pacientes: {
     nome: string;
     telefone: string;
-  };
+    plano_saude: string | null;
+  } | null;
+  medicos: {
+    nome: string;
+    crm: string;
+  } | null;
 };
 
-const COLUMNS = ["Aguardando", "Agendado", "Triagem", "Em Atendimento"];
+interface ColumnDef {
+  id: string;
+  label: string;
+  emoji: string;
+  sub: string;
+  headerBg: string;
+  headerText: string;
+  colBg: string;
+  colBorder: string;
+  cardAccent: string;
+  isException?: boolean;
+}
+
+/* ───────── Column Definitions ───────── */
+
+const COLUMNS: ColumnDef[] = [
+  {
+    id: "agendado", label: "Agendado", emoji: "📋", sub: "Criado pela IA",
+    headerBg: "bg-blue-600", headerText: "text-white",
+    colBg: "bg-blue-50/40", colBorder: "border-blue-200/60",
+    cardAccent: "border-l-blue-500",
+  },
+  {
+    id: "aguardando_confirmacao", label: "Aguard. Confirmação", emoji: "⏳", sub: "Sem confirmação",
+    headerBg: "bg-amber-500", headerText: "text-white",
+    colBg: "bg-amber-50/40", colBorder: "border-amber-200/60",
+    cardAccent: "border-l-amber-500",
+  },
+  {
+    id: "confirmado", label: "Confirmado", emoji: "✓", sub: "Paciente confirmou",
+    headerBg: "bg-emerald-600", headerText: "text-white",
+    colBg: "bg-emerald-50/40", colBorder: "border-emerald-200/60",
+    cardAccent: "border-l-emerald-500",
+  },
+  {
+    id: "hoje", label: "Hoje", emoji: "📅", sub: "Consultas do dia",
+    headerBg: "bg-orange-500", headerText: "text-white",
+    colBg: "bg-orange-50/40", colBorder: "border-orange-200/60",
+    cardAccent: "border-l-orange-500",
+  },
+  {
+    id: "em_atendimento", label: "Em Atendimento", emoji: "🩺", sub: "Em consulta",
+    headerBg: "bg-cyan-600", headerText: "text-white",
+    colBg: "bg-cyan-50/40", colBorder: "border-cyan-200/60",
+    cardAccent: "border-l-cyan-500",
+  },
+  {
+    id: "concluido", label: "Concluído", emoji: "✅", sub: "Finalizado",
+    headerBg: "bg-green-600", headerText: "text-white",
+    colBg: "bg-green-50/40", colBorder: "border-green-200/60",
+    cardAccent: "border-l-green-500",
+  },
+  {
+    id: "pos_atendimento", label: "Pós-Atend.", emoji: "💰", sub: "Follow-up",
+    headerBg: "bg-rose-600", headerText: "text-white",
+    colBg: "bg-rose-50/40", colBorder: "border-rose-200/60",
+    cardAccent: "border-l-rose-500",
+  },
+  {
+    id: "aguardando_retorno", label: "Aguard. Retorno", emoji: "🔁", sub: "Retorno futuro",
+    headerBg: "bg-sky-600", headerText: "text-white",
+    colBg: "bg-sky-50/40", colBorder: "border-sky-200/60",
+    cardAccent: "border-l-sky-500",
+  },
+  // ── Exception columns ──
+  {
+    id: "faltou", label: "Faltou", emoji: "❌", sub: "Não compareceu",
+    headerBg: "bg-red-600", headerText: "text-white",
+    colBg: "bg-red-50/30", colBorder: "border-red-200/50",
+    cardAccent: "border-l-red-500", isException: true,
+  },
+  {
+    id: "cancelado", label: "Cancelado", emoji: "⛔", sub: "Cancelamento",
+    headerBg: "bg-slate-600", headerText: "text-white",
+    colBg: "bg-slate-50/40", colBorder: "border-slate-300/50",
+    cardAccent: "border-l-slate-500", isException: true,
+  },
+  {
+    id: "remarcacao", label: "Remarcação", emoji: "📌", sub: "Pendente",
+    headerBg: "bg-stone-500", headerText: "text-white",
+    colBg: "bg-stone-50/40", colBorder: "border-stone-200/50",
+    cardAccent: "border-l-stone-500", isException: true,
+  },
+];
+
+/* ───────── Status Mappings ───────── */
+
+const COL_TO_STATUS: Record<string, string> = {
+  agendado: "agendada",
+  aguardando_confirmacao: "agendada",
+  confirmado: "confirmada",
+  hoje: "confirmada",
+  em_atendimento: "em_atendimento",
+  concluido: "concluida",
+  pos_atendimento: "pos_atendimento",
+  aguardando_retorno: "aguardando_retorno",
+  faltou: "faltou",
+  cancelado: "cancelada",
+  remarcacao: "remarcacao_pendente",
+};
+
+const TRANSITIONS: Record<string, string[]> = {
+  agendado: ["confirmado", "cancelado"],
+  aguardando_confirmacao: ["confirmado", "faltou", "cancelado"],
+  confirmado: ["em_atendimento", "faltou", "cancelado"],
+  hoje: ["em_atendimento", "faltou"],
+  em_atendimento: ["concluido"],
+  concluido: ["pos_atendimento", "aguardando_retorno"],
+  pos_atendimento: ["aguardando_retorno"],
+  aguardando_retorno: ["agendado"],
+  faltou: ["remarcacao"],
+  cancelado: ["remarcacao"],
+  remarcacao: ["agendado"],
+};
+
+/* ───────── Helpers ───────── */
+
+function assignColumn(c: Consulta): string {
+  const now = new Date();
+  const cDate = new Date(c.data_hora);
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const in48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+
+  switch (c.status) {
+    case "agendada":
+      if (cDate >= todayStart && cDate <= in48h) return "aguardando_confirmacao";
+      return "agendado";
+    case "confirmada":
+      if (cDate >= todayStart && cDate < tomorrowStart) return "hoje";
+      return "confirmado";
+    case "em_atendimento": return "em_atendimento";
+    case "concluida": return "concluido";
+    case "pos_atendimento": return "pos_atendimento";
+    case "aguardando_retorno": return "aguardando_retorno";
+    case "faltou": return "faltou";
+    case "cancelada": return "cancelado";
+    case "remarcacao_pendente": return "remarcacao";
+    default: return "agendado";
+  }
+}
+
+function shortName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length <= 2) return fullName;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}
+
+function doctorShort(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return `Dr(a). ${parts[0]}`;
+}
+
+function formatDateTime(dateStr: string, columnId: string): string {
+  const d = new Date(dateStr);
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (columnId === "hoje" || columnId === "em_atendimento") return time;
+  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return `${date} · ${time}`;
+}
+
+type Tag = { label: string; icon: React.ReactNode; bg: string; text: string };
+
+function computeTags(c: Consulta, all: Consulta[]): Tag[] {
+  const tags: Tag[] = [];
+
+  if (c.motivo === "retorno") {
+    tags.push({ label: "Retorno", icon: <RotateCcw className="h-3 w-3" />, bg: "bg-amber-100", text: "text-amber-700" });
+  }
+
+  const patientCount = all.filter(x => x.paciente_id === c.paciente_id).length;
+  if (patientCount <= 1) {
+    tags.push({ label: "Novo", icon: <Sparkles className="h-3 w-3" />, bg: "bg-blue-100", text: "text-blue-700" });
+  }
+
+  if (c.status === "agendada") {
+    const hoursUntil = (new Date(c.data_hora).getTime() - Date.now()) / (1000 * 60 * 60);
+    if (hoursUntil > 0 && hoursUntil <= 24) {
+      tags.push({ label: "Risco", icon: <AlertTriangle className="h-3 w-3" />, bg: "bg-red-100", text: "text-red-700" });
+    }
+  }
+
+  return tags;
+}
+
+/* ───────── Card Component ───────── */
+
+function KanbanCard({
+  consulta,
+  columnId,
+  cardAccent,
+  allConsultas,
+  onMove,
+  onMarkRetorno,
+}: {
+  consulta: Consulta;
+  columnId: string;
+  cardAccent: string;
+  allConsultas: Consulta[];
+  onMove: (id: string, targetCol: string) => void;
+  onMarkRetorno: (id: string) => void;
+}) {
+  const nome = shortName(consulta.pacientes?.nome || "Paciente");
+  const dateDisplay = formatDateTime(consulta.data_hora, columnId);
+  const medico = consulta.medicos ? doctorShort(consulta.medicos.nome) : null;
+  const plano = consulta.pacientes?.plano_saude || null;
+  const isRetorno = consulta.motivo === "retorno";
+  const tags = computeTags(consulta, allConsultas);
+  const targets = (TRANSITIONS[columnId] || []).map(tid => COLUMNS.find(c => c.id === tid)!).filter(Boolean);
+
+  return (
+    <div
+      className={`group relative bg-white rounded-lg border border-slate-200/80 shadow-sm hover:shadow-md transition-all cursor-default border-l-[4px] ${cardAccent}`}
+    >
+      {/* Header: Name + Time */}
+      <div className="px-3 pt-2.5 pb-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[13px] font-bold text-slate-800 leading-tight truncate">{nome}</span>
+          <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {dateDisplay}
+          </span>
+        </div>
+      </div>
+
+      {/* Doctor + Insurance */}
+      <div className="px-3 pb-1.5 flex items-center gap-3 text-[11px] text-slate-500">
+        {medico && (
+          <span className="flex items-center gap-1 truncate">
+            <Stethoscope className="h-3 w-3 text-slate-400 shrink-0" />
+            {medico}
+          </span>
+        )}
+        {plano && (
+          <span className="flex items-center gap-1 truncate">
+            <Shield className="h-3 w-3 text-slate-400 shrink-0" />
+            {plano}
+          </span>
+        )}
+      </div>
+
+      {/* Badges: Type + Motivo */}
+      <div className="px-3 pb-1.5 flex items-center gap-1.5 flex-wrap">
+        <Badge
+          variant="outline"
+          className={`text-[9px] uppercase font-bold border-none px-1.5 py-0 rounded-sm ${
+            consulta.tipo === "telemedicina"
+              ? "bg-blue-100 text-blue-700"
+              : "bg-emerald-100 text-emerald-700"
+          }`}
+        >
+          {consulta.tipo === "telemedicina" ? "Tele" : "Presencial"}
+        </Badge>
+        <Badge
+          variant="outline"
+          className={`text-[9px] uppercase font-bold border-none px-1.5 py-0 rounded-sm ${
+            isRetorno ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {isRetorno ? "Retorno" : "Consulta"}
+        </Badge>
+      </div>
+
+      {/* Auto Tags */}
+      {tags.length > 0 && (
+        <div className="px-3 pb-1.5 flex items-center gap-1.5 flex-wrap">
+          {tags.map((tag) => (
+            <span
+              key={tag.label}
+              className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0 rounded-sm ${tag.bg} ${tag.text}`}
+            >
+              {tag.icon}
+              {tag.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Actions (on hover) */}
+      <div className="px-3 pb-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Mark as Retorno */}
+        {!isRetorno && (
+          <button
+            onClick={() => onMarkRetorno(consulta.id)}
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-600 flex items-center gap-0.5"
+            title="Marcar como Retorno"
+          >
+            <RotateCcw className="h-2.5 w-2.5" />
+            Retorno
+          </button>
+        )}
+        {/* Move buttons */}
+        {targets.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => onMove(consulta.id, t.id)}
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 truncate max-w-[72px]"
+            title={`Mover para ${t.label}`}
+          >
+            {t.emoji} {t.label.split(" ")[0]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ───────── Main Board ───────── */
 
 export function KanbanBoard() {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
@@ -27,8 +344,7 @@ export function KanbanBoard() {
   const fetchConsultas = async () => {
     const { data } = await supabase
       .from("consultas")
-      .select("*, pacientes(*)")
-      .in("status", COLUMNS.map((c) => c.toLowerCase()));
+      .select("*, pacientes(*), medicos(*)");
 
     if (data) setConsultas(data);
   };
@@ -37,124 +353,115 @@ export function KanbanBoard() {
     fetchConsultas();
 
     const channel = supabase
-      .channel("realtime-consultas-kanban")
+      .channel("realtime-kanban-v2")
       .on("postgres_changes", { event: "*", schema: "public", table: "consultas" }, () => {
-          fetchConsultas();
-      }).subscribe();
+        fetchConsultas();
+      })
+      .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  const moveCard = async (id: string, novoStatus: string) => {
-    setConsultas((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status: novoStatus.toLowerCase() } : c))
+  const columnData = useMemo(() => {
+    const map: Record<string, Consulta[]> = {};
+    COLUMNS.forEach((c) => { map[c.id] = []; });
+    consultas.forEach((c) => {
+      const colId = assignColumn(c);
+      if (map[colId]) map[colId].push(c);
+    });
+    // Sort each column by date ascending
+    Object.values(map).forEach((arr) =>
+      arr.sort((a, b) => new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime())
     );
-    await supabase.from("consultas").update({ status: novoStatus.toLowerCase() }).eq("id", id);
+    return map;
+  }, [consultas]);
+
+  const moveCard = async (id: string, targetCol: string) => {
+    const newStatus = COL_TO_STATUS[targetCol];
+    setConsultas((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: newStatus } : c))
+    );
+    await supabase.from("consultas").update({ status: newStatus }).eq("id", id);
   };
 
-  const setComoRetorno = async (id: string) => {
+  const markRetorno = async (id: string) => {
     setConsultas((prev) =>
       prev.map((c) => (c.id === id ? { ...c, motivo: "retorno" } : c))
     );
     await supabase.from("consultas").update({ motivo: "retorno" }).eq("id", id);
-  }
+  };
 
   return (
-    <div className="flex h-full w-full gap-4 pb-2">
-      {COLUMNS.map((coluna) => (
-        <div key={coluna} className="flex flex-col flex-1 min-w-[240px] max-w-[280px] bg-[#F1F5F9] border border-slate-200/60 rounded-xl p-3 shadow-none">
-          <div className="flex items-start justify-between mb-3 px-1">
-             <h2 className="font-bold text-slate-800 text-[15px]">{coluna}</h2>
+    <div className="flex gap-3 h-full overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+      {COLUMNS.map((col, i) => {
+        const cards = columnData[col.id] || [];
+        const showSeparator = col.isException && !COLUMNS[i - 1]?.isException;
+
+        return (
+          <div key={col.id} className="flex items-stretch shrink-0">
+            {/* Visual separator before exception columns */}
+            {showSeparator && (
+              <div className="flex flex-col items-center justify-center px-2 shrink-0">
+                <div className="w-px flex-1 bg-slate-300/60 rounded-full" />
+                <span className="text-[9px] font-bold text-slate-400 py-2 writing-vertical" style={{ writingMode: "vertical-rl" }}>
+                  EXCEÇÕES
+                </span>
+                <div className="w-px flex-1 bg-slate-300/60 rounded-full" />
+              </div>
+            )}
+
+            {/* Column */}
+            <div
+              className={`flex flex-col min-w-[210px] max-w-[230px] rounded-xl border ${col.colBorder} ${col.colBg} ${
+                col.isException ? "opacity-80" : ""
+              }`}
+            >
+              {/* Column Header */}
+              <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl ${col.headerBg}`}>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[12px]">{col.emoji}</span>
+                  <span className={`text-[12px] font-bold ${col.headerText} truncate`}>
+                    {col.label}
+                  </span>
+                </div>
+                <span
+                  className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-white/25 ${col.headerText} shrink-0`}
+                >
+                  {cards.length}
+                </span>
+              </div>
+
+              {/* Column subtitle */}
+              <div className="px-3 py-1 border-b border-slate-200/40">
+                <span className="text-[10px] text-slate-400 font-medium">{col.sub}</span>
+              </div>
+
+              {/* Cards */}
+              <div className="flex flex-col gap-2 p-2 overflow-y-auto flex-1">
+                {cards.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+                    <span className="text-2xl mb-1 opacity-40">{col.emoji}</span>
+                    <span className="text-[11px] font-medium">Nenhum</span>
+                  </div>
+                )}
+                {cards.map((consulta) => (
+                  <KanbanCard
+                    key={consulta.id}
+                    consulta={consulta}
+                    columnId={col.id}
+                    cardAccent={col.cardAccent}
+                    allConsultas={consultas}
+                    onMove={moveCard}
+                    onMarkRetorno={markRetorno}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
-          
-          <div className="flex flex-col gap-3 overflow-y-auto pr-1 pb-1 scrollbar-thin">
-            {consultas
-              .filter((c) => c.status === coluna.toLowerCase())
-              .sort((a,b) => new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime())
-              .map((consulta) => {
-                
-                const formatTime = new Date(consulta.data_hora).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                const nomeRaw = consulta.pacientes?.nome || "Paciente Anônimo";
-                // Limitar primeiro e último nome
-                const nomeParts = nomeRaw.split(" ");
-                const nomeCurto = nomeParts.length > 1 ? `${nomeParts[0]} ${nomeParts[nomeParts.length - 1]}` : nomeRaw;
-                
-                const isRetorno = consulta.motivo === 'retorno';
-
-                return (
-                <Card key={consulta.id} className="cursor-grab active:cursor-grabbing border-slate-200 shadow-sm hover:shadow-md transition-all group bg-white rounded-xl">
-                  <span className="sr-only font-mono text-[10px] text-slate-400 block px-4 pt-2">font-mono, text-ss</span>
-                  <CardHeader className="px-4 py-2 flex flex-col items-start gap-1 space-y-0 relative">
-                    
-                    <CardTitle className="text-[14px] font-bold text-slate-800 leading-none">
-                      {nomeCurto} - {formatTime}
-                    </CardTitle>
-                    <div className="text-[11px] font-mono text-slate-400">font-mono, text-ss</div>
-                    
-                    {/* Botão flutuante para Marcar Retorno */}
-                    <button 
-                      onClick={() => isRetorno ? null : setComoRetorno(consulta.id)}
-                      className="absolute top-2 right-2 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Marcar como Retorno"
-                    >
-                      <RotateCcw className={`h-3 w-3 ${isRetorno ? 'text-amber-500' : 'text-slate-400'}`} />
-                    </button>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-3 pt-0 flex flex-col gap-2">
-                    <div className="flex justify-start items-center gap-2 mt-1">
-                      
-                      {/* Telemedicina vs Presencial (Verde pra ambos no seu mockup dependendo) */}
-                      <Badge 
-                        variant="outline" 
-                        className={`text-[10px] uppercase font-bold border-none px-2 py-0.5 rounded-sm ${
-                          consulta.tipo === 'telemedicina' 
-                          ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
-                          : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                        }`}
-                      >
-                        {consulta.tipo === 'telemedicina' ? "Telemedicina" : "Presencial"}
-                      </Badge>
-
-                      {/* Consulta vs Retorno */}
-                      <Badge 
-                        variant="outline" 
-                        className={`text-[10px] uppercase font-bold border-none px-2 py-0.5 rounded-sm ${
-                          isRetorno
-                          ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {isRetorno ? "Retorno" : (consulta.motivo || "Consulta")}
-                      </Badge>
-                    </div>
-
-                    {/* Botão de Move state */}
-                    <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {COLUMNS.map((c) => (
-                        c !== coluna && (
-                          <button
-                            key={c}
-                            onClick={() => moveCard(consulta.id, c)}
-                            className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded text-[9px] font-bold uppercase truncate max-w-[80px]"
-                          >
-                            {c.split(' ')[0]}
-                          </button>
-                        )
-                      ))}
-                    </div>
-
-                  </CardContent>
-                </Card>
-              )})}
-              
-              {consultas.filter((c) => c.status === coluna.toLowerCase()).length === 0 && (
-                 <div className="flex flex-col items-start px-2 py-4">
-                    <p className="text-[13px] font-medium text-slate-400">Nenhum atendimento</p>
-                 </div>
-              )}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
