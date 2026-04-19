@@ -498,14 +498,32 @@ export function KanbanBoard({ searchQuery = "" }: { searchQuery?: string }) {
   useEffect(() => {
     fetchConsultas();
 
+    // 1. Timer for "virtual" columns (syncs Today/48h columns automatically every minute)
+    const timer = setInterval(() => {
+      console.log("[Kanban] Clock tick - re-fetching to sync virtual columns...");
+      fetchConsultas();
+    }, 60 * 1000);
+
+    // 2. Realtime Subscription
     const channel = supabase
       .channel("realtime-kanban-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "consultas" }, () => {
+      .on("postgres_changes", {
+         event: "*",
+         schema: "public",
+         table: "consultas"
+      }, (payload) => {
+        console.log("[Kanban] Realtime change detected:", payload.eventType);
         fetchConsultas();
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log("[Kanban] Realtime subscription status:", status);
+        if (status === "SUBSCRIBED") {
+          console.log("✅ Conectado ao Supabase Realtime para a tabela 'consultas'");
+        }
+      });
 
     return () => {
+      clearInterval(timer);
       supabase.removeChannel(channel);
     };
   }, []);
