@@ -447,7 +447,7 @@ function DroppableColumn({
           <span className="text-[10px] text-slate-400 font-medium">{col.sub}</span>
         </div>
 
-        <div className="flex flex-col gap-2 p-2 overflow-y-auto flex-1 h-[600px]">
+        <div className="flex flex-col gap-2 p-2 overflow-y-auto flex-1">
           {cards.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-slate-400">
               <span className="text-2xl mb-1 opacity-40">{col.emoji}</span>
