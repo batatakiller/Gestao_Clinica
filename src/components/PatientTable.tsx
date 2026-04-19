@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   Table,
@@ -28,7 +28,7 @@ type ConsultaFull = {
   };
 };
 
-export function PatientTable() {
+export function PatientTable({ searchQuery = "" }: { searchQuery?: string }) {
   const [data, setData] = useState<ConsultaFull[]>([]);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function PatientTable() {
         .select("*, pacientes(nome, telefone, plano_saude)")
         .order("data_hora", { ascending: false });
 
-      if (result) setData(result);
+      if (result) setData(result as unknown as ConsultaFull[]);
     };
 
     fetchData();
@@ -50,6 +50,17 @@ export function PatientTable() {
       
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  const filteredData = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return data;
+    return data.filter((row) => {
+      const nome = row.pacientes?.nome?.toLowerCase() || "";
+      const telefone = row.pacientes?.telefone?.toLowerCase() || "";
+      const plano = row.pacientes?.plano_saude?.toLowerCase() || "";
+      return nome.includes(query) || telefone.includes(query) || plano.includes(query);
+    });
+  }, [data, searchQuery]);
 
   const getStatusColor = (status: string) => {
     switch(status.toLowerCase()) {
@@ -83,7 +94,7 @@ export function PatientTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.map((row) => (
+              {filteredData.map((row) => (
                 <TableRow key={row.id} className="border-slate-50 hover:bg-slate-50/80 transition-colors">
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-3">

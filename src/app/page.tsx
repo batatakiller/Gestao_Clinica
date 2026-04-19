@@ -29,6 +29,7 @@ export default function Dashboard() {
     hoje: 0, amanha: 0, semana: 0, taxaConfirmacao: 0, faltaram: 0,
   });
   const [activeTab, setActiveTab] = useState<"kanban" | "lista" | "chat">("kanban");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     async function loadMetrics() {
@@ -134,6 +135,8 @@ export default function Dashboard() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
               placeholder="Buscar paciente ou CPF..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 bg-slate-50 border-slate-200 shadow-none font-medium h-9 text-sm"
             />
           </div>
@@ -244,13 +247,13 @@ export default function Dashboard() {
             {/* Tab Content */}
             {activeTab === "kanban" && (
               <div className="flex-1 min-h-0 overflow-hidden rounded-2xl">
-                <KanbanBoard />
+                <KanbanBoard searchQuery={searchQuery} />
               </div>
             )}
 
             {activeTab === "lista" && (
               <div className="flex-1 min-h-[300px]">
-                <PatientTable />
+                <PatientTable searchQuery={searchQuery} />
               </div>
             )}
 

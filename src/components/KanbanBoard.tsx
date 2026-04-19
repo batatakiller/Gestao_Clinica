@@ -34,6 +34,7 @@ type Consulta = {
     nome: string;
     telefone: string;
     plano_saude: string | null;
+    cpf?: string | null;
   } | null;
   medicos: {
     nome: string;
@@ -473,7 +474,7 @@ function DroppableColumn({
 
 /* ───────── Main Board ───────── */
 
-export function KanbanBoard() {
+export function KanbanBoard({ searchQuery = "" }: { searchQuery?: string }) {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
   const [activeConsulta, setActiveConsulta] = useState<Consulta | null>(null);
 
@@ -486,11 +487,12 @@ export function KanbanBoard() {
   );
 
   const fetchConsultas = async () => {
+    // We select CPF too for searching
     const { data } = await supabase
       .from("consultas")
-      .select("*, pacientes(*), medicos(*)");
+      .select("*, pacientes(nome, telefone, plano_saude, cpf), medicos(*)");
 
-    if (data) setConsultas(data);
+    if (data) setConsultas(data as unknown as Consulta[]);
   };
 
   useEffect(() => {
@@ -511,7 +513,17 @@ export function KanbanBoard() {
   const columnData = useMemo(() => {
     const map: Record<string, Consulta[]> = {};
     COLUMNS.forEach((c) => { map[c.id] = []; });
-    consultas.forEach((c) => {
+
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = query
+      ? consultas.filter((c) => {
+          const name = c.pacientes?.nome?.toLowerCase() || "";
+          const cpf = c.pacientes?.cpf?.toLowerCase() || "";
+          return name.includes(query) || cpf.includes(query);
+        })
+      : consultas;
+
+    filtered.forEach((c) => {
       const colId = assignColumn(c);
       if (map[colId]) map[colId].push(c);
     });
@@ -519,7 +531,7 @@ export function KanbanBoard() {
       arr.sort((a, b) => new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime())
     );
     return map;
-  }, [consultas]);
+  }, [consultas, searchQuery]);
 
   const moveCard = async (id: string, targetCol: string) => {
     const newStatus = COL_TO_STATUS[targetCol];
