@@ -28,7 +28,13 @@ type ConsultaFull = {
   };
 };
 
-export function PatientTable({ searchQuery = "" }: { searchQuery?: string }) {
+export function PatientTable({ 
+  searchQuery = "",
+  onSelectPatient,
+}: { 
+  searchQuery?: string;
+  onSelectPatient: (p: { nome: string; telefone: string }) => void;
+}) {
   const [data, setData] = useState<ConsultaFull[]>([]);
 
   useEffect(() => {
@@ -95,7 +101,18 @@ export function PatientTable({ searchQuery = "" }: { searchQuery?: string }) {
             </TableHeader>
             <TableBody>
               {filteredData.map((row) => (
-                <TableRow key={row.id} className="border-slate-50 hover:bg-slate-50/80 transition-colors">
+                <TableRow 
+                  key={row.id} 
+                  className="border-slate-50 hover:bg-slate-50/80 transition-colors cursor-pointer"
+                  onClick={() => {
+                    if (row.pacientes) {
+                      onSelectPatient({
+                        nome: row.pacientes.nome,
+                        telefone: row.pacientes.telefone
+                      });
+                    }
+                  }}
+                >
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-3">
                        <Avatar className="h-8 w-8">

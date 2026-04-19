@@ -16,11 +16,23 @@ type WhatsAppMessage = {
   created_at: string;
 };
 
-export function ChatArea() {
+export function ChatArea({ 
+  activeNumber: propNumber = null, 
+  activeName: propName = null 
+}: { 
+  activeNumber?: string | null;
+  activeName?: string | null;
+}) {
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [inputText, setInputText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [activeNumber, setActiveNumber] = useState<string | null>(null);
+  const [activeNumber, setActiveNumber] = useState<string | null>(propNumber);
+
+  useEffect(() => {
+    if (propNumber) {
+      setActiveNumber(propNumber);
+    }
+  }, [propNumber]);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -99,7 +111,7 @@ export function ChatArea() {
           </Avatar>
           <div className="flex flex-col">
             <h2 className="text-[15px] font-semibold text-slate-800 leading-tight">
-              {activeNumber ? `+${activeNumber}` : "Nenhum chat selecionado"}
+              {propName || (activeNumber ? `+${activeNumber}` : "Nenhum chat selecionado")}
             </h2>
             <span className="text-xs text-emerald-600 font-medium">Online (via Evolution)</span>
           </div>

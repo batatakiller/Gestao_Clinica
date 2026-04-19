@@ -236,16 +236,20 @@ function CardBody({
   cardAccent,
   allConsultas,
   isOverlay = false,
+  isActive = false,
   onMove,
   onMarkRetorno,
+  onClick,
 }: {
   consulta: Consulta;
   columnId: string;
   cardAccent: string;
   allConsultas: Consulta[];
   isOverlay?: boolean;
+  isActive?: boolean;
   onMove?: (id: string, targetCol: string) => void;
   onMarkRetorno?: (id: string) => void;
+  onClick?: () => void;
 }) {
   const nome = shortName(consulta.pacientes?.nome || "Paciente");
   const dateDisplay = formatDateTime(consulta.data_hora, columnId);
@@ -257,9 +261,12 @@ function CardBody({
 
   return (
     <div
-      className={`group relative bg-white rounded-lg border border-slate-200/80 shadow-sm ${
+      onClick={onClick}
+      className={`group relative bg-white rounded-lg border shadow-sm ${
         isOverlay ? "shadow-xl border-emerald-400 rotate-2" : "hover:shadow-md"
-      } transition-all cursor-default border-l-[4px] ${cardAccent}`}
+      } ${
+        isActive ? "border-emerald-500 ring-2 ring-emerald-500/20" : "border-slate-200/80"
+      } transition-all cursor-pointer border-l-[4px] ${cardAccent}`}
     >
       <div className="absolute top-2 right-2 flex items-center gap-1">
          <GripVertical className="h-3.5 w-3.5 text-slate-300 opacity-50 group-hover:opacity-100 cursor-grab active:cursor-grabbing" />
@@ -360,8 +367,10 @@ function DraggableCard(props: {
   columnId: string;
   cardAccent: string;
   allConsultas: Consulta[];
+  isActive?: boolean;
   onMove: (id: string, targetCol: string) => void;
   onMarkRetorno: (id: string) => void;
+  onClick: () => void;
 }) {
   const {
     attributes,
@@ -401,6 +410,8 @@ function DroppableColumn({
   allConsultas,
   onMove,
   onMarkRetorno,
+  onSelectPatient,
+  activePatientId,
   showSeparator,
 }: {
   col: ColumnDef;
@@ -408,6 +419,8 @@ function DroppableColumn({
   allConsultas: Consulta[];
   onMove: (id: string, targetCol: string) => void;
   onMarkRetorno: (id: string) => void;
+  onSelectPatient: (p: { nome: string; telefone: string }) => void;
+  activePatientId?: string;
   showSeparator: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -462,8 +475,17 @@ function DroppableColumn({
               columnId={col.id}
               cardAccent={col.cardAccent}
               allConsultas={allConsultas}
+              isActive={activePatientId === consulta.pacientes?.telefone}
               onMove={onMove}
               onMarkRetorno={onMarkRetorno}
+              onClick={() => {
+                if (consulta.pacientes) {
+                   onSelectPatient({
+                     nome: consulta.pacientes.nome,
+                     telefone: consulta.pacientes.telefone
+                   });
+                }
+              }}
             />
           ))}
         </div>
@@ -474,7 +496,15 @@ function DroppableColumn({
 
 /* ───────── Main Board ───────── */
 
-export function KanbanBoard({ searchQuery = "" }: { searchQuery?: string }) {
+export function KanbanBoard({ 
+  searchQuery = "",
+  onSelectPatient,
+  activePatientId,
+}: { 
+  searchQuery?: string;
+  onSelectPatient: (p: { nome: string; telefone: string }) => void;
+  activePatientId?: string;
+}) {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
   const [activeConsulta, setActiveConsulta] = useState<Consulta | null>(null);
 
@@ -604,6 +634,8 @@ export function KanbanBoard({ searchQuery = "" }: { searchQuery?: string }) {
               allConsultas={consultas}
               onMove={moveCard}
               onMarkRetorno={markRetorno}
+              onSelectPatient={onSelectPatient}
+              activePatientId={activePatientId}
               showSeparator={!!showSeparator}
             />
           );

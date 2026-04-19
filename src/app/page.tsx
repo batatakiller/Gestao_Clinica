@@ -30,6 +30,7 @@ export default function Dashboard() {
   });
   const [activeTab, setActiveTab] = useState<"kanban" | "lista" | "chat">("kanban");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedPatient, setSelectedPatient] = useState<{ nome: string; telefone: string } | null>(null);
 
   useEffect(() => {
     async function loadMetrics() {
@@ -247,13 +248,20 @@ export default function Dashboard() {
             {/* Tab Content */}
             {activeTab === "kanban" && (
               <div className="flex-1 min-h-0 overflow-hidden rounded-2xl">
-                <KanbanBoard searchQuery={searchQuery} />
+                <KanbanBoard 
+                  searchQuery={searchQuery} 
+                  onSelectPatient={setSelectedPatient}
+                  activePatientId={selectedPatient?.telefone}
+                />
               </div>
             )}
 
             {activeTab === "lista" && (
               <div className="flex-1 min-h-[300px]">
-                <PatientTable searchQuery={searchQuery} />
+                <PatientTable 
+                  searchQuery={searchQuery} 
+                  onSelectPatient={setSelectedPatient}
+                />
               </div>
             )}
 
@@ -268,7 +276,10 @@ export default function Dashboard() {
           {activeTab === "kanban" && (
             <div className="w-[380px] h-full shrink-0">
               <div className="h-full bg-white rounded-2xl border border-slate-200 shadow-lg overflow-hidden flex flex-col relative">
-                <ChatArea />
+                <ChatArea 
+                  activeNumber={selectedPatient?.telefone || null}
+                  activeName={selectedPatient?.nome || null}
+                />
               </div>
             </div>
           )}
