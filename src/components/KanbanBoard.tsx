@@ -3,7 +3,20 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
-import { RotateCcw, Clock, Stethoscope, Shield, AlertTriangle, Sparkles } from "lucide-react";
+import { RotateCcw, Clock, Stethoscope, Shield, AlertTriangle, Sparkles, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+  DragStartEvent,
+  DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 
 /* ───────── Types ───────── */
 
@@ -214,13 +227,14 @@ function computeTags(c: Consulta, all: Consulta[]): Tag[] {
   return tags;
 }
 
-/* ───────── Card Component ───────── */
+/* ───────── Inner Card UI ───────── */
 
-function KanbanCard({
+function CardBody({
   consulta,
   columnId,
   cardAccent,
   allConsultas,
+  isOverlay = false,
   onMove,
   onMarkRetorno,
 }: {
@@ -228,8 +242,9 @@ function KanbanCard({
   columnId: string;
   cardAccent: string;
   allConsultas: Consulta[];
-  onMove: (id: string, targetCol: string) => void;
-  onMarkRetorno: (id: string) => void;
+  isOverlay?: boolean;
+  onMove?: (id: string, targetCol: string) => void;
+  onMarkRetorno?: (id: string) => void;
 }) {
   const nome = shortName(consulta.pacientes?.nome || "Paciente");
   const dateDisplay = formatDateTime(consulta.data_hora, columnId);
@@ -241,9 +256,14 @@ function KanbanCard({
 
   return (
     <div
-      className={`group relative bg-white rounded-lg border border-slate-200/80 shadow-sm hover:shadow-md transition-all cursor-default border-l-[4px] ${cardAccent}`}
+      className={`group relative bg-white rounded-lg border border-slate-200/80 shadow-sm ${
+        isOverlay ? "shadow-xl border-emerald-400 rotate-2" : "hover:shadow-md"
+      } transition-all cursor-default border-l-[4px] ${cardAccent}`}
     >
-      {/* Header: Name + Time */}
+      <div className="absolute top-2 right-2 flex items-center gap-1">
+         <GripVertical className="h-3.5 w-3.5 text-slate-300 opacity-50 group-hover:opacity-100 cursor-grab active:cursor-grabbing" />
+      </div>
+
       <div className="px-3 pt-2.5 pb-1">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] font-bold text-slate-800 leading-tight truncate">{nome}</span>
@@ -254,7 +274,6 @@ function KanbanCard({
         </div>
       </div>
 
-      {/* Doctor + Insurance */}
       <div className="px-3 pb-1.5 flex items-center gap-3 text-[11px] text-slate-500">
         {medico && (
           <span className="flex items-center gap-1 truncate">
@@ -270,7 +289,6 @@ function KanbanCard({
         )}
       </div>
 
-      {/* Badges: Type + Motivo */}
       <div className="px-3 pb-1.5 flex items-center gap-1.5 flex-wrap">
         <Badge
           variant="outline"
@@ -292,7 +310,6 @@ function KanbanCard({
         </Badge>
       </div>
 
-      {/* Auto Tags */}
       {tags.length > 0 && (
         <div className="px-3 pb-1.5 flex items-center gap-1.5 flex-wrap">
           {tags.map((tag) => (
@@ -307,30 +324,148 @@ function KanbanCard({
         </div>
       )}
 
-      {/* Actions (on hover) */}
-      <div className="px-3 pb-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        {/* Mark as Retorno */}
-        {!isRetorno && (
-          <button
-            onClick={() => onMarkRetorno(consulta.id)}
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-600 flex items-center gap-0.5"
-            title="Marcar como Retorno"
-          >
-            <RotateCcw className="h-2.5 w-2.5" />
-            Retorno
-          </button>
-        )}
-        {/* Move buttons */}
-        {targets.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => onMove(consulta.id, t.id)}
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 truncate max-w-[72px]"
-            title={`Mover para ${t.label}`}
-          >
-            {t.emoji} {t.label.split(" ")[0]}
-          </button>
-        ))}
+      {onMove && onMarkRetorno && (
+        <div className="px-3 pb-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {!isRetorno && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onMarkRetorno(consulta.id); }}
+              className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-600 flex items-center gap-0.5"
+              title="Marcar como Retorno"
+            >
+              <RotateCcw className="h-2.5 w-2.5" />
+              Retorno
+            </button>
+          )}
+          {targets.map((t) => (
+            <button
+              key={t.id}
+              onClick={(e) => { e.stopPropagation(); onMove(consulta.id, t.id); }}
+              className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 truncate max-w-[72px]"
+              title={`Mover para ${t.label}`}
+            >
+              {t.emoji} {t.label.split(" ")[0]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────── Draggable Card ───────── */
+
+function DraggableCard(props: {
+  consulta: Consulta;
+  columnId: string;
+  cardAccent: string;
+  allConsultas: Consulta[];
+  onMove: (id: string, targetCol: string) => void;
+  onMarkRetorno: (id: string) => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
+    id: props.consulta.id,
+    data: { consulta: props.consulta, columnId: props.columnId },
+  });
+
+  const style = transform ? {
+    transform: CSS.Translate.toString(transform),
+  } : undefined;
+
+  if (isDragging) {
+    return (
+      <div ref={setNodeRef} style={style} className="opacity-30">
+        <CardBody {...props} />
+      </div>
+    );
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
+      <CardBody {...props} />
+    </div>
+  );
+}
+
+/* ───────── Droppable Column ───────── */
+
+function DroppableColumn({
+  col,
+  cards,
+  allConsultas,
+  onMove,
+  onMarkRetorno,
+  showSeparator,
+}: {
+  col: ColumnDef;
+  cards: Consulta[];
+  allConsultas: Consulta[];
+  onMove: (id: string, targetCol: string) => void;
+  onMarkRetorno: (id: string) => void;
+  showSeparator: boolean;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: col.id,
+  });
+
+  return (
+    <div className="flex items-stretch shrink-0">
+      {showSeparator && (
+        <div className="flex flex-col items-center justify-center px-2 shrink-0">
+          <div className="w-px flex-1 bg-slate-300/60 rounded-full" />
+          <span className="text-[9px] font-bold text-slate-400 py-2" style={{ writingMode: "vertical-rl" }}>
+            EXCEÇÕES
+          </span>
+          <div className="w-px flex-1 bg-slate-300/60 rounded-full" />
+        </div>
+      )}
+
+      <div
+        ref={setNodeRef}
+        className={`flex flex-col min-w-[210px] max-w-[230px] rounded-xl border transition-all ${
+          isOver ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.02]" : col.colBorder
+        } ${col.colBg} ${col.isException ? "opacity-80" : ""}`}
+      >
+        <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl ${col.headerBg}`}>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-[12px]">{col.emoji}</span>
+            <span className={`text-[12px] font-bold ${col.headerText} truncate`}>
+              {col.label}
+            </span>
+          </div>
+          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-white/25 ${col.headerText} shrink-0`}>
+            {cards.length}
+          </span>
+        </div>
+
+        <div className="px-3 py-1 border-b border-slate-200/40">
+          <span className="text-[10px] text-slate-400 font-medium">{col.sub}</span>
+        </div>
+
+        <div className="flex flex-col gap-2 p-2 overflow-y-auto flex-1 h-[600px]">
+          {cards.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-8 text-slate-400">
+              <span className="text-2xl mb-1 opacity-40">{col.emoji}</span>
+              <span className="text-[11px] font-medium">Nenhum</span>
+            </div>
+          )}
+          {cards.map((consulta) => (
+            <DraggableCard
+              key={consulta.id}
+              consulta={consulta}
+              columnId={col.id}
+              cardAccent={col.cardAccent}
+              allConsultas={allConsultas}
+              onMove={onMove}
+              onMarkRetorno={onMarkRetorno}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -340,6 +475,15 @@ function KanbanCard({
 
 export function KanbanBoard() {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
+  const [activeConsulta, setActiveConsulta] = useState<Consulta | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   const fetchConsultas = async () => {
     const { data } = await supabase
@@ -371,7 +515,6 @@ export function KanbanBoard() {
       const colId = assignColumn(c);
       if (map[colId]) map[colId].push(c);
     });
-    // Sort each column by date ascending
     Object.values(map).forEach((arr) =>
       arr.sort((a, b) => new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime())
     );
@@ -393,75 +536,69 @@ export function KanbanBoard() {
     await supabase.from("consultas").update({ motivo: "retorno" }).eq("id", id);
   };
 
+  function handleDragStart(event: DragStartEvent) {
+    const { active } = event;
+    const data = active.data.current as { consulta: Consulta; columnId: string } | undefined;
+    if (data) {
+      setActiveConsulta(data.consulta);
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveConsulta(null);
+
+    if (over && active.id !== over.id) {
+      const consultaId = active.id as string;
+      const targetCol = over.id as string;
+      moveCard(consultaId, targetCol);
+    }
+  }
+
   return (
-    <div className="flex gap-3 h-full overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
-      {COLUMNS.map((col, i) => {
-        const cards = columnData[col.id] || [];
-        const showSeparator = col.isException && !COLUMNS[i - 1]?.isException;
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="flex gap-3 h-full overflow-x-auto pb-6" style={{ scrollbarWidth: "thin" }}>
+        {COLUMNS.map((col, i) => {
+          const cards = columnData[col.id] || [];
+          const showSeparator = col.isException && !COLUMNS[i - 1]?.isException;
 
-        return (
-          <div key={col.id} className="flex items-stretch shrink-0">
-            {/* Visual separator before exception columns */}
-            {showSeparator && (
-              <div className="flex flex-col items-center justify-center px-2 shrink-0">
-                <div className="w-px flex-1 bg-slate-300/60 rounded-full" />
-                <span className="text-[9px] font-bold text-slate-400 py-2 writing-vertical" style={{ writingMode: "vertical-rl" }}>
-                  EXCEÇÕES
-                </span>
-                <div className="w-px flex-1 bg-slate-300/60 rounded-full" />
-              </div>
-            )}
+          return (
+            <DroppableColumn
+              key={col.id}
+              col={col}
+              cards={cards}
+              allConsultas={consultas}
+              onMove={moveCard}
+              onMarkRetorno={markRetorno}
+              showSeparator={!!showSeparator}
+            />
+          );
+        })}
+      </div>
 
-            {/* Column */}
-            <div
-              className={`flex flex-col min-w-[210px] max-w-[230px] rounded-xl border ${col.colBorder} ${col.colBg} ${
-                col.isException ? "opacity-80" : ""
-              }`}
-            >
-              {/* Column Header */}
-              <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl ${col.headerBg}`}>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[12px]">{col.emoji}</span>
-                  <span className={`text-[12px] font-bold ${col.headerText} truncate`}>
-                    {col.label}
-                  </span>
-                </div>
-                <span
-                  className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-white/25 ${col.headerText} shrink-0`}
-                >
-                  {cards.length}
-                </span>
-              </div>
-
-              {/* Column subtitle */}
-              <div className="px-3 py-1 border-b border-slate-200/40">
-                <span className="text-[10px] text-slate-400 font-medium">{col.sub}</span>
-              </div>
-
-              {/* Cards */}
-              <div className="flex flex-col gap-2 p-2 overflow-y-auto flex-1">
-                {cards.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-8 text-slate-400">
-                    <span className="text-2xl mb-1 opacity-40">{col.emoji}</span>
-                    <span className="text-[11px] font-medium">Nenhum</span>
-                  </div>
-                )}
-                {cards.map((consulta) => (
-                  <KanbanCard
-                    key={consulta.id}
-                    consulta={consulta}
-                    columnId={col.id}
-                    cardAccent={col.cardAccent}
-                    allConsultas={consultas}
-                    onMove={moveCard}
-                    onMarkRetorno={markRetorno}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
+      <DragOverlay dropAnimation={{
+          sideEffects: defaultDropAnimationSideEffects({
+            styles: {
+              active: {
+                opacity: '0.4',
+              },
+            },
+          }),
+        }}>
+        {activeConsulta ? (
+          <CardBody
+            consulta={activeConsulta}
+            columnId={assignColumn(activeConsulta)}
+            cardAccent={COLUMNS.find(c => c.id === assignColumn(activeConsulta))?.cardAccent || ""}
+            allConsultas={consultas}
+            isOverlay={true}
+          />
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
