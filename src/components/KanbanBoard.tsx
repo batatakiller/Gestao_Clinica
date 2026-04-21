@@ -251,7 +251,7 @@ function CardBody({
   onMarkRetorno?: (id: string) => void;
   onClick?: () => void;
 }) {
-  const nome = shortName(consulta.pacientes?.nome || "Paciente");
+  const nome = consulta.pacientes?.nome || "Paciente";
   const dateDisplay = formatDateTime(consulta.data_hora, columnId);
   const medico = consulta.medicos ? doctorShort(consulta.medicos.nome) : null;
   const plano = consulta.pacientes?.plano_saude || null;
@@ -274,7 +274,7 @@ function CardBody({
 
       <div className="px-3 pt-2.5 pb-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[13px] font-bold text-slate-800 leading-tight truncate">{nome}</span>
+          <span className="text-[13px] font-bold text-slate-800 leading-tight">{nome}</span>
           <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap flex items-center gap-1">
             <Clock className="h-3 w-3" />
             {dateDisplay}
