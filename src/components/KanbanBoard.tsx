@@ -185,11 +185,7 @@ function assignColumn(c: Consulta): string {
   }
 }
 
-function shortName(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/);
-  if (parts.length <= 2) return fullName;
-  return `${parts[0]} ${parts[parts.length - 1]}`;
-}
+
 
 function doctorShort(fullName: string): string {
   const parts = fullName.trim().split(/\s+/);
